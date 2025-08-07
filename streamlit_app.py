@@ -24,7 +24,6 @@ def carregar_dados(ticker):
     """Busca os últimos 5 anos de dados históricos para o ativo."""
     end_date = datetime.now()
     start_date = end_date - timedelta(days=5*365)
-    # CORREÇÃO: A variável 'end' foi corrigida para 'end_date'
     dados = yf.download(ticker, start=start_date, end=end_date)
     # Renomeia as colunas para português para facilitar a leitura
     dados.rename(columns={
@@ -34,11 +33,15 @@ def carregar_dados(ticker):
     return dados
 
 @st.cache_data
-def gerar_vencimentos(start_date, end_date):
+def gerar_vencimentos(_start_date, _end_date):
     """Gera a lista de vencimentos (3ª sexta-feira) para o período."""
     vencimentos = []
+    # Garante que as datas de início e fim sejam objetos datetime
+    start_date = pd.to_datetime(_start_date)
+    end_date = pd.to_datetime(_end_date)
+    
     # Itera por cada mês no intervalo de datas
-    current_date = start_date
+    current_date = start_date.replace(day=1)
     while current_date <= end_date + timedelta(days=60):
         year, month = current_date.year, current_date.month
         # Encontra a 3ª sexta-feira
@@ -56,11 +59,14 @@ def gerar_vencimentos(start_date, end_date):
 
 def processar_dados_com_periodos(dados, vencimentos):
     """Adiciona colunas de identificação de período aos dados diários."""
-    dados['ID_Semana'] = dados.index.to_period('W-FRI').strftime('%Y-%U')
+    # CORREÇÃO: Converte o PeriodIndex para string. O método strftime não existe para um PeriodIndex.
+    dados['ID_Semana'] = dados.index.to_period('W-FRI').astype(str)
     
-    # Cria os "bins" (intervalos) para os ciclos mensais e bimestrais
-    venc_series = pd.Series(vencimentos, index=vencimentos)
-    dados['ID_Ciclo_Mensal'] = pd.cut(dados.index, bins=vencimentos, labels=venc_series.iloc[1:].strftime('%d/%m/%Y'), right=False)
+    venc_series = pd.Series(pd.to_datetime(vencimentos))
+    
+    # CORREÇÃO: Usa o acessor .dt para aplicar o método strftime a cada data na série de vencimentos.
+    labels_mensais = venc_series.iloc[1:].dt.strftime('%d/%m/%Y')
+    dados['ID_Ciclo_Mensal'] = pd.cut(dados.index, bins=vencimentos, labels=labels_mensais, right=False)
     
     bim_labels = []
     for i in range(1, len(vencimentos), 2):
@@ -69,7 +75,14 @@ def processar_dados_com_periodos(dados, vencimentos):
         ano = vencimentos[i].year
         bim_labels.append(f"Bim-{mes1}/{mes2}-{ano}")
 
-    dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=vencimentos[::2], labels=bim_labels, right=False)
+    bins_bimestrais = vencimentos[::2]
+    if len(bins_bimestrais) > len(bim_labels) + 1:
+        bins_bimestrais = bins_bimestrais[:len(bim_labels)+1]
+    
+    if len(bim_labels) > len(bins_bimestrais) -1:
+        bim_labels = bim_labels[:len(bins_bimestrais)-1]
+
+    dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=bins_bimestrais, labels=bim_labels, right=False)
     
     return dados.dropna(subset=['ID_Ciclo_Mensal', 'ID_Ciclo_Bimestral'])
 
@@ -108,7 +121,6 @@ def calcular_estatisticas(resumo_historico):
         dados_faixa = resumo_historico[(resumo_historico['Abertura'] >= min_val) & (resumo_historico['Abertura'] <= max_val)]
         
         if len(dados_faixa) > 10: # Mínimo de 10 períodos para estatística
-            # Cálculo dos Ranges
             deltas = dados_faixa['Delta_Rs']
             ranges[nome_faixa] = {
                 60: np.max([np.abs(deltas.quantile(0.20)), np.abs(deltas.quantile(0.80))]),
@@ -117,7 +129,6 @@ def calcular_estatisticas(resumo_historico):
                 80: np.max([np.abs(deltas.quantile(0.10)), np.abs(deltas.quantile(0.90))])
             }
             
-            # Cálculo das Probabilidades de Reversão
             reversoes[nome_faixa] = {
                 'recuo_20': len(dados_faixa[dados_faixa['Recuo_Alta_Rs'] > 0.2 * dados_faixa['Var_Alta_Rs']]) / len(dados_faixa),
                 'recuo_30': len(dados_faixa[dados_faixa['Recuo_Alta_Rs'] > 0.3 * dados_faixa['Var_Alta_Rs']]) / len(dados_faixa),
@@ -128,8 +139,8 @@ def calcular_estatisticas(resumo_historico):
                 'recup_40': len(dados_faixa[dados_faixa['Recup_Baixa_Rs'] > 0.4 * dados_faixa['Var_Baixa_Rs']]) / len(dados_faixa),
                 'recup_50': len(dados_faixa[dados_faixa['Recup_Baixa_Rs'] > 0.5 * dados_faixa['Var_Baixa_Rs']]) / len(dados_faixa),
             }
-            reversoes[nome_faixa]['recuo_media'] = np.mean([reversoes[nome_faixa]['recuo_20'], reversoes[nome_faixa]['recuo_30'], reversoes[nome_faixa]['recuo_40'], reversoes[nome_faixa]['recuo_50']])
-            reversoes[nome_faixa]['recup_media'] = np.mean([reversoes[nome_faixa]['recup_20'], reversoes[nome_faixa]['recup_30'], reversoes[nome_faixa]['recup_40'], reversoes[nome_faixa]['recup_50']])
+            reversoes[nome_faixa]['recuo_media'] = np.mean(list(reversoes[nome_faixa].values())[:4])
+            reversoes[nome_faixa]['recup_media'] = np.mean(list(reversoes[nome_faixa].values())[4:8])
 
     return ranges, reversoes
 
@@ -148,7 +159,6 @@ def exibir_painel_periodo(nome_periodo, dados_diarios, resumo_historico, ranges,
     """Função genérica para exibir os cards de análise para qualquer período."""
     st.header(f"Análise {nome_periodo}", divider='rainbow')
 
-    # Encontra o período atual
     hoje = pd.to_datetime(datetime.now().date())
     periodo_atual = resumo_historico[(hoje >= resumo_historico['Data_Inicio']) & (hoje <= resumo_historico['Data_Fim'])]
     
@@ -162,7 +172,6 @@ def exibir_painel_periodo(nome_periodo, dados_diarios, resumo_historico, ranges,
 
     col1, col2 = st.columns(2)
 
-    # Card de Ranges
     with col1:
         with st.container(border=True):
             st.subheader("🎯 Ranges de Variação")
@@ -176,7 +185,6 @@ def exibir_painel_periodo(nome_periodo, dados_diarios, resumo_historico, ranges,
             else:
                 st.info("Não há dados históricos suficientes para esta faixa de preço.")
 
-    # Card de Alertas
     with col2:
         with st.container(border=True):
             st.subheader("🚨 Alertas de Variação")
@@ -186,14 +194,19 @@ def exibir_painel_periodo(nome_periodo, dados_diarios, resumo_historico, ranges,
                  return
 
             dados_no_periodo = dados_diarios[(dados_diarios.index >= periodo_atual['Data_Inicio']) & (dados_diarios.index <= hoje)]
+            if dados_no_periodo.empty:
+                st.info("Aguardando primeiro dia de negociação do período.")
+                return
+
             maxima_no_periodo = dados_no_periodo['Maxima'].max()
             minima_no_periodo = dados_no_periodo['Minima'].min()
             
             var_atual_alta = maxima_no_periodo - abertura_periodo
             var_atual_baixa = abertura_periodo - minima_no_periodo
 
-            media_var_alta_faixa = resumo_historico[resumo_historico.apply(lambda row: get_faixa_preco(row['Abertura']) == faixa_atual, axis=1)]['Var_Alta_Rs'].mean()
-            media_var_baixa_faixa = resumo_historico[resumo_historico.apply(lambda row: get_faixa_preco(row['Abertura']) == faixa_atual, axis=1)]['Var_Baixa_Rs'].mean()
+            historico_faixa = resumo_historico[resumo_historico.apply(lambda row: get_faixa_preco(row['Abertura']) == faixa_atual, axis=1)]
+            media_var_alta_faixa = historico_faixa['Var_Alta_Rs'].mean()
+            media_var_baixa_faixa = historico_faixa['Var_Baixa_Rs'].mean()
             
             dias_restantes = (periodo_atual['Data_Fim'].date() - hoje.date()).days
             
@@ -220,28 +233,30 @@ def exibir_painel_periodo(nome_periodo, dados_diarios, resumo_historico, ranges,
 try:
     dados_brutos = carregar_dados("USIM5.SA")
     
-    # Adiciona a data de hoje com os últimos dados para garantir que o período atual seja encontrado
-    ultima_linha = dados_brutos.iloc[[-1]]
-    ultima_linha.index = [pd.to_datetime(datetime.now().date())]
-    dados_com_hoje = pd.concat([dados_brutos, ultima_linha])
-    
-    vencimentos = gerar_vencimentos(dados_com_hoje.index.min(), dados_com_hoje.index.max())
-    dados_processados = processar_dados_com_periodos(dados_com_hoje, vencimentos)
+    if not dados_brutos.empty:
+        ultima_linha = dados_brutos.iloc[[-1]]
+        ultima_linha.index = [pd.to_datetime(datetime.now().date())]
+        dados_com_hoje = pd.concat([dados_brutos, ultima_linha])
+        
+        vencimentos = gerar_vencimentos(dados_com_hoje.index.min(), dados_com_hoje.index.max())
+        dados_processados = processar_dados_com_periodos(dados_com_hoje, vencimentos)
 
-    # Cálculos Semanais
-    resumo_semanal = calcular_resumo_periodo(dados_processados, 'ID_Semana')
-    ranges_semanais, reversoes_semanais = calcular_estatisticas(resumo_semanal)
-    exibir_painel_periodo("Semanal", dados_processados, resumo_semanal, ranges_semanais, reversoes_semanais)
+        # Cálculos Semanais
+        resumo_semanal = calcular_resumo_periodo(dados_processados, 'ID_Semana')
+        ranges_semanais, reversoes_semanais = calcular_estatisticas(resumo_semanal)
+        exibir_painel_periodo("Semanal", dados_processados, resumo_semanal, ranges_semanais, reversoes_semanais)
 
-    # Cálculos Mensais
-    resumo_mensal = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Mensal')
-    ranges_mensais, reversoes_mensais = calcular_estatisticas(resumo_mensal)
-    exibir_painel_periodo("Mensal (Opções)", dados_processados, resumo_mensal, ranges_mensais, reversoes_mensais)
+        # Cálculos Mensais
+        resumo_mensal = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Mensal')
+        ranges_mensais, reversoes_mensais = calcular_estatisticas(resumo_mensal)
+        exibir_painel_periodo("Mensal (Opções)", dados_processados, resumo_mensal, ranges_mensais, reversoes_mensais)
 
-    # Cálculos Bimestrais
-    resumo_bimestral = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Bimestral')
-    ranges_bimestrais, reversoes_bimestrais = calcular_estatisticas(resumo_bimestral)
-    exibir_painel_periodo("Bimestral (Opções)", dados_processados, resumo_bimestral, ranges_bimestrais, reversoes_bimestrais)
+        # Cálculos Bimestrais
+        resumo_bimestral = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Bimestral')
+        ranges_bimestrais, reversoes_bimestrais = calcular_estatisticas(resumo_bimestral)
+        exibir_painel_periodo("Bimestral (Opções)", dados_processados, resumo_bimestral, ranges_bimestrais, reversoes_bimestrais)
+    else:
+        st.error("Não foi possível carregar os dados do ativo. A API pode estar temporariamente indisponível.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao executar a análise: {e}")
