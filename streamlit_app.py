@@ -89,7 +89,7 @@ def processar_dados_com_periodos(dados, vencimentos):
 def calcular_resumo_periodo(dados, id_periodo):
     """Cria a tabela de resumo histórico para um determinado período."""
     dados_com_data = dados.reset_index()
-    # CORREÇÃO: Converte o id_periodo para string se for uma categoria para evitar erros no groupby
+    # Converte o id_periodo para string se for uma categoria para evitar erros no groupby
     if isinstance(dados_com_data[id_periodo].dtype, pd.CategoricalDtype):
         dados_com_data[id_periodo] = dados_com_data[id_periodo].astype(str)
 
