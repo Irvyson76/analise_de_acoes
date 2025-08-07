@@ -39,13 +39,16 @@ def processar_dados_semanais(dados):
 
 def calcular_resumo_semanal(dados):
     """Cria a tabela de resumo histórico semanal."""
-    resumo = dados.groupby('ID_Semana').agg(
+    # CORREÇÃO: Converte o índice de data em uma coluna para que possa ser usada na agregação.
+    dados_com_data = dados.reset_index() 
+    
+    resumo = dados_com_data.groupby('ID_Semana').agg(
         Abertura=('Abertura', 'first'),
         Maxima=('Maxima', 'max'),
         Minima=('Minima', 'min'),
         Fechamento=('Fechamento', 'last'),
-        Data_Inicio=(dados.index.name or 'Date', 'min'),
-        Data_Fim=(dados.index.name or 'Date', 'max')
+        Data_Inicio=('Date', 'min'), # Agora funciona, pois 'Date' é uma coluna
+        Data_Fim=('Date', 'max')    # Agora funciona, pois 'Date' é uma coluna
     )
     resumo['Var_Alta_Rs'] = resumo['Maxima'] - resumo['Abertura']
     resumo['Var_Baixa_Rs'] = resumo['Abertura'] - resumo['Minima']
