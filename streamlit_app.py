@@ -24,7 +24,8 @@ def carregar_dados(ticker):
     """Busca os últimos 5 anos de dados históricos para o ativo."""
     end_date = datetime.now()
     start_date = end_date - timedelta(days=5*365)
-    dados = yf.download(ticker, start=start_date, end=end)
+    # CORREÇÃO: A variável 'end' foi corrigida para 'end_date'
+    dados = yf.download(ticker, start=start_date, end=end_date)
     # Renomeia as colunas para português para facilitar a leitura
     dados.rename(columns={
         "Open": "Abertura", "High": "Maxima", "Low": "Minima",
