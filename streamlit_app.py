@@ -36,10 +36,17 @@ def carregar_dados(ticker):
 def gerar_vencimentos(_start_date, _end_date):
     """Gera a lista de vencimentos (3ª sexta-feira) para o período."""
     vencimentos = []
-    # Garante que as datas de início e fim sejam objetos datetime
     start_date = pd.to_datetime(_start_date)
     end_date = pd.to_datetime(_end_date)
     
+    # CORREÇÃO: Adiciona o vencimento do mês anterior ao início para garantir a cobertura total do range de datas.
+    prev_month_start = (start_date.replace(day=1) - timedelta(days=1)).replace(day=1)
+    year, month = prev_month_start.year, prev_month_start.month
+    first_day_prev = datetime(year, month, 1)
+    first_friday_prev = first_day_prev + timedelta(days=(4 - first_day_prev.weekday() + 7) % 7)
+    third_friday_prev = first_friday_prev + timedelta(weeks=2)
+    vencimentos.append(third_friday_prev)
+
     # Itera por cada mês no intervalo de datas
     current_date = start_date.replace(day=1)
     while current_date <= end_date + timedelta(days=60):
@@ -59,12 +66,10 @@ def gerar_vencimentos(_start_date, _end_date):
 
 def processar_dados_com_periodos(dados, vencimentos):
     """Adiciona colunas de identificação de período aos dados diários."""
-    # CORREÇÃO: Converte o PeriodIndex para string. O método strftime não existe para um PeriodIndex.
     dados['ID_Semana'] = dados.index.to_period('W-FRI').astype(str)
     
     venc_series = pd.Series(pd.to_datetime(vencimentos))
     
-    # CORREÇÃO: Usa o acessor .dt para aplicar o método strftime a cada data na série de vencimentos.
     labels_mensais = venc_series.iloc[1:].dt.strftime('%d/%m/%Y')
     dados['ID_Ciclo_Mensal'] = pd.cut(dados.index, bins=vencimentos, labels=labels_mensais, right=False)
     
@@ -76,11 +81,14 @@ def processar_dados_com_periodos(dados, vencimentos):
         bim_labels.append(f"Bim-{mes1}/{mes2}-{ano}")
 
     bins_bimestrais = vencimentos[::2]
-    if len(bins_bimestrais) > len(bim_labels) + 1:
-        bins_bimestrais = bins_bimestrais[:len(bim_labels)+1]
     
-    if len(bim_labels) > len(bins_bimestrais) -1:
-        bim_labels = bim_labels[:len(bins_bimestrais)-1]
+    # Lógica para garantir que o número de labels seja sempre um a menos que o número de bins
+    if len(bim_labels) > len(bins_bimestrais) - 1:
+        bim_labels = bim_labels[:len(bins_bimestrais) - 1]
+    
+    if len(bins_bimestrais) > len(bim_labels) + 1:
+        bins_bimestrais = bins_bimestrais[:len(bim_labels) + 1]
+
 
     dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=bins_bimestrais, labels=bim_labels, right=False)
     
