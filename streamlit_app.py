@@ -80,6 +80,7 @@ def processar_dados_com_periodos(dados, vencimentos):
 
     dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=bins_bimestrais, labels=bim_labels, right=False, include_lowest=True)
     
+    # CORREÇÃO: Remove linhas onde os ciclos não puderam ser calculados, em vez de dar erro mais tarde.
     return dados.dropna(subset=['ID_Ciclo_Mensal', 'ID_Ciclo_Bimestral'])
 
 
