@@ -71,26 +71,20 @@ def processar_dados_com_periodos(dados, vencimentos):
     venc_series = pd.Series(pd.to_datetime(vencimentos))
     
     labels_mensais = venc_series.iloc[1:].dt.strftime('%d/%m/%Y')
-    dados['ID_Ciclo_Mensal'] = pd.cut(dados.index, bins=vencimentos, labels=labels_mensais, right=False)
+    dados['ID_Ciclo_Mensal'] = pd.cut(dados.index, bins=vencimentos, labels=labels_mensais, right=False, include_lowest=True)
     
-    bim_labels = []
-    for i in range(1, len(vencimentos), 2):
-        mes1 = vencimentos[i-1].strftime("%b")
-        mes2 = vencimentos[i].strftime("%b")
-        ano = vencimentos[i].year
-        bim_labels.append(f"Bim-{mes1}/{mes2}-{ano}")
-
     bins_bimestrais = vencimentos[::2]
-    
-    # Lógica para garantir que o número de labels seja sempre um a menos que o número de bins
-    if len(bim_labels) > len(bins_bimestrais) - 1:
-        bim_labels = bim_labels[:len(bins_bimestrais) - 1]
-    
-    if len(bins_bimestrais) > len(bim_labels) + 1:
-        bins_bimestrais = bins_bimestrais[:len(bim_labels) + 1]
+    bim_labels = []
+    for i in range(len(bins_bimestrais) - 1):
+        venc_idx1 = i * 2
+        venc_idx2 = venc_idx1 + 1
+        if venc_idx2 < len(vencimentos):
+            mes1 = vencimentos[venc_idx1].strftime("%b")
+            mes2 = vencimentos[venc_idx2].strftime("%b")
+            ano = vencimentos[venc_idx2].year
+            bim_labels.append(f"Bim-{mes1}/{mes2}-{ano}")
 
-
-    dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=bins_bimestrais, labels=bim_labels, right=False)
+    dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=bins_bimestrais, labels=bim_labels, right=False, include_lowest=True)
     
     return dados.dropna(subset=['ID_Ciclo_Mensal', 'ID_Ciclo_Bimestral'])
 
