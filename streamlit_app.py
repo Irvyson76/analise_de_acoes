@@ -33,60 +33,66 @@ def carregar_dados(ticker):
 
 @st.cache_data
 def gerar_vencimentos(_start_date, _end_date):
-    """Gera a lista de vencimentos (3ª sexta-feira) para o período."""
-    vencimentos = []
+    """Gera a lista de vencimentos (3ª sexta-feira) para o período, sem duplicados."""
+    vencimentos = set() # Usar um conjunto (set) previne duplicados automaticamente
     start_date = pd.to_datetime(_start_date).replace(day=1)
     end_date = pd.to_datetime(_end_date).replace(day=1)
     
-    # CORREÇÃO: Garante que o primeiro vencimento seja anterior à primeira data do histórico.
-    current_date = start_date - timedelta(days=35)
-    current_date = current_date.replace(day=1)
+    # Começa um mês antes para garantir que a primeira data do histórico seja coberta
+    current_date = start_date - pd.DateOffset(months=1)
 
-    while current_date <= end_date + timedelta(days=60):
+    # Vai até dois meses depois para garantir que a última data seja coberta
+    while current_date <= end_date + pd.DateOffset(months=2):
         year, month = current_date.year, current_date.month
         first_day = datetime(year, month, 1)
         # Encontra a 3ª sexta-feira do mês
         first_friday = first_day + timedelta(days=(4 - first_day.weekday() + 7) % 7)
         third_friday = first_friday + timedelta(weeks=2)
-        if third_friday not in vencimentos:
-            vencimentos.append(third_friday)
+        vencimentos.add(pd.to_datetime(third_friday))
         
-        # Avança para o próximo mês
-        if month == 12:
-            current_date = datetime(year + 1, 1, 1)
-        else:
-            current_date = datetime(year, month + 1, 1)
+        current_date += pd.DateOffset(months=1)
             
-    return sorted(vencimentos)
+    return sorted(list(vencimentos))
 
 def processar_dados_com_periodos(dados, vencimentos):
     """Adiciona colunas de identificação de período aos dados diários."""
     dados['ID_Semana'] = dados.index.to_period('W-FRI').astype(str)
     
-    venc_series = pd.Series(pd.to_datetime(vencimentos))
-    labels_mensais = venc_series.iloc[1:].dt.strftime('%d/%m/%Y')
-    dados['ID_Ciclo_Mensal'] = pd.cut(dados.index, bins=vencimentos, labels=labels_mensais, right=False, include_lowest=True)
-    
-    bins_bimestrais = vencimentos[::2]
-    bim_labels = []
-    for i in range(len(bins_bimestrais) - 1):
-        venc_idx1 = i * 2
-        venc_idx2 = venc_idx1 + 1
-        if venc_idx2 < len(vencimentos):
-            mes1 = vencimentos[venc_idx1].strftime("%b")
-            mes2 = vencimentos[venc_idx2].strftime("%b")
-            ano = vencimentos[venc_idx2].year
-            bim_labels.append(f"Bim-{mes1}/{mes2}-{ano}")
+    vencimentos_ts = [pd.Timestamp(v) for v in vencimentos]
 
-    dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=bins_bimestrais, labels=bim_labels, right=False, include_lowest=True)
-    
-    # CORREÇÃO: Remove linhas onde os ciclos não puderam ser calculados, em vez de dar erro mais tarde.
-    return dados.dropna(subset=['ID_Ciclo_Mensal', 'ID_Ciclo_Bimestral'])
+    # Ciclo Mensal
+    if len(vencimentos_ts) > 1:
+        labels_mensais = [v.strftime('%d/%m/%Y') for v in vencimentos_ts[1:]]
+        dados['ID_Ciclo_Mensal'] = pd.cut(dados.index, bins=vencimentos_ts, labels=labels_mensais, right=False, include_lowest=True)
+
+    # Ciclo Bimestral
+    bins_bimestrais = vencimentos_ts[::2]
+    if len(bins_bimestrais) > 1:
+        bim_labels = []
+        for i in range(len(bins_bimestrais) - 1):
+            venc_idx1 = i * 2
+            venc_idx2 = venc_idx1 + 1
+            if venc_idx2 < len(vencimentos_ts):
+                mes1 = vencimentos_ts[venc_idx1].strftime("%b")
+                mes2 = vencimentos_ts[venc_idx2].strftime("%b")
+                ano = vencimentos_ts[venc_idx2].year
+                bim_labels.append(f"Bim-{mes1}/{mes2}-{ano}")
+        dados['ID_Ciclo_Bimestral'] = pd.cut(dados.index, bins=bins_bimestrais, labels=bim_labels, right=False, include_lowest=True)
+
+    # Garante que apenas as linhas com ciclos válidos prossigam
+    required_cols = ['ID_Ciclo_Mensal', 'ID_Ciclo_Bimestral']
+    if all(col in dados.columns for col in required_cols):
+        return dados.dropna(subset=required_cols)
+    return dados
 
 
 def calcular_resumo_periodo(dados, id_periodo):
     """Cria a tabela de resumo histórico para um determinado período."""
     dados_com_data = dados.reset_index()
+    # CORREÇÃO: Converte o id_periodo para string se for uma categoria para evitar erros no groupby
+    if isinstance(dados_com_data[id_periodo].dtype, pd.CategoricalDtype):
+        dados_com_data[id_periodo] = dados_com_data[id_periodo].astype(str)
+
     resumo = dados_com_data.groupby(id_periodo).agg(
         Abertura=('Abertura', 'first'),
         Maxima=('Maxima', 'max'),
@@ -232,6 +238,7 @@ try:
     dados_brutos = carregar_dados("USIM5.SA")
     
     if not dados_brutos.empty:
+        # Adiciona a data de hoje com os últimos dados para garantir que o período atual seja encontrado
         ultima_linha = dados_brutos.iloc[[-1]]
         ultima_linha.index = [pd.to_datetime(datetime.now().date())]
         dados_com_hoje = pd.concat([dados_brutos, ultima_linha])
