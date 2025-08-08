@@ -107,43 +107,8 @@ def processar_dados_com_periodos(dados, vencimentos):
             except:
                 dados['ID_Ciclo_Bimestral'] = pd.NA
 
-        # Debug info
-        st.write("Estrutura dos dados processados:")
-        st.write(dados.head())
-        st.write("Colunas disponíveis:", dados.columns.tolist())
-        
         return dados
 
     except Exception as e:
         st.error(f"Erro ao processar dados: {str(e)}")
         return dados
-
-def calcular_resumo_periodo(dados, id_periodo):
-    """Cria a tabela de resumo histórico para um determinado período."""
-    try:
-        dados_com_data = dados.reset_index()
-        if isinstance(dados_com_data[id_periodo].dtype, pd.CategoricalDtype):
-            dados_com_data[id_periodo] = dados_com_data[id_periodo].astype(str)
-
-        resumo = dados_com_data.groupby(id_periodo).agg({
-            'Abertura': 'first',
-            'Maxima': 'max',
-            'Minima': 'min',
-            'Fechamento': 'last',
-            'Data': ['min', 'max']
-        })
-
-        # Acertar os nomes das colunas
-        resumo.columns = ['Abertura', 'Maxima', 'Minima', 'Fechamento', 'Data_Inicio', 'Data_Fim']
-        
-        resumo['Var_Alta_Rs'] = resumo['Maxima'] - resumo['Abertura']
-        resumo['Var_Baixa_Rs'] = resumo['Abertura'] - resumo['Minima']
-        resumo['Recuo_Alta_Rs'] = resumo['Maxima'] - resumo['Fechamento']
-        resumo['Recup_Baixa_Rs'] = resumo['Fechamento'] - resumo['Minima']
-        resumo['Delta_Rs'] = resumo['Fechamento'] - resumo['Abertura']
-        
-        return resumo
-    except Exception as e:
-        st.error(f"Erro ao calcular resumo: {str(e)}")
-        st.write("Colunas disponíveis:", dados.columns.tolist())
-        return pd.DataFrame()
