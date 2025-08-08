@@ -62,13 +62,16 @@ def processar_dados_com_periodos(dados, vencimentos):
         # Ciclo Mensal
         if len(vencimentos_ts) > 1:
             labels_mensais = [v.strftime('%d/%m/%Y') for v in vencimentos_ts[1:]]
-            dados['ID_Ciclo_Mensal'] = pd.cut(
-                dados.index,
-                bins=vencimentos_ts,
-                labels=labels_mensais,
-                right=False,
-                include_lowest=True
-            )
+            try:
+                dados['ID_Ciclo_Mensal'] = pd.cut(
+                    dados.index,
+                    bins=vencimentos_ts,
+                    labels=labels_mensais,
+                    right=False,
+                    include_lowest=True
+                )
+            except:
+                dados['ID_Ciclo_Mensal'] = pd.NA
 
         # Ciclo Bimestral
         bins_bimestrais = vencimentos_ts[::2]
@@ -83,21 +86,34 @@ def processar_dados_com_periodos(dados, vencimentos):
                     ano = vencimentos_ts[venc_idx2].year
                     bim_labels.append(f"Bim-{mes1}/{mes2}-{ano}")
             
-            dados['ID_Ciclo_Bimestral'] = pd.cut(
-                dados.index,
-                bins=bins_bimestrais,
-                labels=bim_labels,
-                right=False,
-                include_lowest=True
-            )
+            try:
+                dados['ID_Ciclo_Bimestral'] = pd.cut(
+                    dados.index,
+                    bins=bins_bimestrais,
+                    labels=bim_labels,
+                    right=False,
+                    include_lowest=True
+                )
+            except:
+                dados['ID_Ciclo_Bimestral'] = pd.NA
 
-        # Remover linhas com valores ausentes nos ciclos
-        dados = dados.dropna(subset=['ID_Ciclo_Mensal', 'ID_Ciclo_Bimestral'])
+        # Mostrar informações de debug
+        st.write("Colunas disponíveis:", dados.columns.tolist())
+        st.write("Quantidade de dados:", len(dados))
+        st.write("Primeiros registros:", dados.head())
+
+        # Verificar se as colunas existem antes de fazer o dropna
+        colunas_necessarias = ['ID_Ciclo_Mensal', 'ID_Ciclo_Bimestral']
+        colunas_existentes = [col for col in colunas_necessarias if col in dados.columns]
+        
+        if colunas_existentes:
+            dados = dados.dropna(subset=colunas_existentes)
+        
         return dados
 
     except Exception as e:
         st.error(f"Erro ao processar dados: {str(e)}")
-        return pd.DataFrame()
+        return dados
 
 def calcular_resumo_periodo(dados, id_periodo):
     """Cria a tabela de resumo histórico para um determinado período."""
@@ -291,24 +307,27 @@ try:
         
     dados_processados = processar_dados_com_periodos(dados_com_hoje, vencimentos)
     
-    if dados_processados.empty:
-        st.warning("Não há dados suficientes para análise após o processamento.")
-        st.stop()
-
     # Cálculos Semanais
-    resumo_semanal = calcular_resumo_periodo(dados_processados, 'ID_Semana')
-    ranges_semanais, reversoes_semanais = calcular_estatisticas(resumo_semanal)
-    exibir_painel_periodo("Semanal", dados_processados, resumo_semanal, ranges_semanais, reversoes_semanais)
+    if 'ID_Semana' in dados_processados.columns:
+        resumo_semanal = calcular_resumo_periodo(dados_processados, 'ID_Semana')
+        ranges_semanais, reversoes_semanais = calcular_estatisticas(resumo_semanal)
+        exibir_painel_periodo("Semanal", dados_processados, resumo_semanal, ranges_semanais, reversoes_semanais)
 
     # Cálculos Mensais
-    resumo_mensal = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Mensal')
-    ranges_mensais, reversoes_mensais = calcular_estatisticas(resumo_mensal)
-    exibir_painel_periodo("Mensal (Opções)", dados_processados, resumo_mensal, ranges_mensais, reversoes_mensais)
+    if 'ID_Ciclo_Mensal' in dados_processados.columns and not dados_processados['ID_Ciclo_Mensal'].isna().all():
+        resumo_mensal = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Mensal')
+        ranges_mensais, reversoes_mensais = calcular_estatisticas(resumo_mensal)
+        exibir_painel_periodo("Mensal (Opções)", dados_processados, resumo_mensal, ranges_mensais, reversoes_mensais)
+    else:
+        st.warning("Não foi possível gerar a análise mensal devido à falta de dados válidos.")
 
     # Cálculos Bimestrais
-    resumo_bimestral = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Bimestral')
-    ranges_bimestrais, reversoes_bimestrais = calcular_estatisticas(resumo_bimestral)
-    exibir_painel_periodo("Bimestral (Opções)", dados_processados, resumo_bimestral, ranges_bimestrais, reversoes_bimestrais)
+    if 'ID_Ciclo_Bimestral' in dados_processados.columns and not dados_processados['ID_Ciclo_Bimestral'].isna().all():
+        resumo_bimestral = calcular_resumo_periodo(dados_processados, 'ID_Ciclo_Bimestral')
+        ranges_bimestrais, reversoes_bimestrais = calcular_estatisticas(resumo_bimestral)
+        exibir_painel_periodo("Bimestral (Opções)", dados_processados, resumo_bimestral, ranges_bimestrais, reversoes_bimestrais)
+    else:
+        st.warning("Não foi possível gerar a análise bimestral devido à falta de dados válidos.")
 
 except Exception as e:
     st.error(f"Erro na execução principal: {str(e)}")
